@@ -1,29 +1,32 @@
 # device_xiaomi_pudding-kernel
 
-Prebuilt stock kernel, device trees and kernel modules for the **Xiaomi 17** (`pudding`,
-Snapdragon 8 Elite Gen 5 / SM8850, platform `canoe`). Used by the `pudding` device tree
-until a source-built kernel replaces it.
+Kernel prebuilts for the **Xiaomi 17** (`pudding`, Snapdragon 8 Elite Gen 5 / SM8850, platform
+`canoe`), used by the `pudding` device tree:
+- the GKI kernel and its 103 GKI modules, **built from source** (Android Common Kernel, see
+  [GKI kernel](#gki-kernel-built-from-source));
+- device trees and the vendor modules, taken from the stock firmware.
 
 ## Source firmware
-Everything here is taken unmodified from the official Xiaomi fastboot ROM
+The device trees and vendor modules are taken unmodified from the official Xiaomi fastboot ROM
 **HyperOS OS3.0.335.0.XPCEUXM** (EEA global, build 20260929):
 
 `pudding_eea_global_images_OS3.0.335.0.XPCEUXM_20260929.0000.00_17.0_eea_af0aef5577.tgz`
 (sha256 `cc9129729b64e46cfc245c4dc20d8ec25887feae7bc61e89b256393fa7124fa8`)
 
-Kernel: `6.12.69-android16-6-gc8366273ff73-ab15162216-4k`, the GKI build of
+Its kernel is `6.12.69-android16-6-gc8366273ff73-ab15162216-4k`, Google's GKI build of
 [ACK](https://android.googlesource.com/kernel/common) tag `android16-6.12-2026-03_r7`
-(`c8366273ff73f3794018cd64ea13cbd6f5f5286a`).
+(`c8366273ff73f3794018cd64ea13cbd6f5f5286a`). The kernel here is built from that same tag, so
+the stock vendor modules load unchanged (same KMI).
 
 ## Contents
 | Path | From | Notes |
 |---|---|---|
-| `kernel` | `boot.img` | Uncompressed ARM64 `Image`, 4K pages |
+| `kernel` | Built from source | Uncompressed ARM64 `Image`, 4K pages: `6.12.69-android16-6-gc8366273ff73-4k` |
 | `dtb/NN_dtbdump_<model>.dtb` | `vendor_boot.img` | The 12 DTBs of the stock blob, one file each; `BOARD_PREBUILT_DTBIMAGE_DIR` concatenates them in name order, which gives the stock blob byte for byte |
 | `dtbo.img` | `dtbo.img` | DT table only (2 entries); AVB footer and padding removed |
 | `vendor_ramdisk/` | `vendor_boot.img` ramdisk `lib/modules` | 462 modules; `modules.load` (first stage), `modules.load.recovery`, `modules.blocklist` |
 | `vendor_dlkm/` | `vendor_dlkm` partition `lib/modules` | 403 modules; `modules.load`, `modules.blocklist`, `system_dlkm.modules.blocklist` |
-| `system_dlkm/` | `system_dlkm` partition (flattened) | 103 GKI modules; `modules.load` |
+| `system_dlkm/` | Built from source; `modules.load` from the `system_dlkm` partition | 103 GKI modules, signed by the same build as `kernel` |
 | `kernel-headers/` | Kernel sources, see below | Installed kernel UAPI headers for the Qualcomm HALs built from source |
 
 Generated files (`modules.dep`, `modules.alias`, `modules.softdep`, …) are not stored; the
@@ -47,8 +50,40 @@ KERNEL_PREBUILT_DIR := device/xiaomi/pudding-kernel
 PRODUCT_COPY_FILES += device/xiaomi/pudding-kernel/kernel:kernel
 ```
 
-Keep the kernel and all three module sets from the **same** firmware: the vendor modules are
-built against this exact GKI kernel.
+The vendor modules are built against the GKI KMI of `android16-6.12-2026-03_r7`; `kernel` and
+`system_dlkm/` must come from the **same** build (see below).
+
+## GKI kernel (built from source)
+`kernel` and `system_dlkm/*.ko` are a plain GKI build (`gki_defconfig`, no changes) of
+[kernel/common](https://android.googlesource.com/kernel/common) tag
+`android16-6.12-2026-03_r7` (`c8366273ff73`), the source of the stock kernel.
+
+In a LineageOS or PixelOS tree the Kleaf kernel platform comes from the manifest snippet
+`snippets/kernel-6.12.xml` (`kernel/platform/kernel-6.12`). Pin `kernel/common` to the tag in a
+local manifest:
+
+```xml
+<manifest>
+  <include name="manifests/snippets/kernel-6.12.xml" />
+  <extend-project name="kernel/common" path="kernel/platform/kernel-6.12/common"
+                  revision="refs/tags/android16-6.12-2026-03_r7" />
+</manifest>
+```
+
+Then build (from the top of the Android tree) and copy:
+
+```bash
+python3 vendor/lineage/build/tools/kernel_kleaf_manifest.py 6.12 > /tmp/kernel-manifest.xml
+cd kernel/platform/kernel-6.12
+tools/bazel run --repo_manifest="$PWD:/tmp/kernel-manifest.xml" --config=stamp \
+    //common:kernel_aarch64_dist -- --destdir=/tmp/gki-dist
+cp /tmp/gki-dist/Image <this repo>/kernel
+for ko in <this repo>/system_dlkm/*.ko; do cp "/tmp/gki-dist/${ko##*/}" "$ko"; done
+```
+
+The build signs the modules with a key it generates, and the kernel only trusts that key, so
+always copy `Image` and all modules of one build together. Two builds differ only in that key:
+the module contents are identical without their signature.
 
 ## Kernel headers
 The Qualcomm HALs that LineageOS builds from source include kernel UAPI headers of the
@@ -85,22 +120,22 @@ so after updating the headers remove
 them regenerated.
 
 ## Updating to a new firmware
-`extract-files.sh` recreates everything above except `kernel-headers/` from an unpacked
-fastboot ROM: `boot.img`, `vendor_boot.img` and `dtbo.img` anywhere below the dump, the
-`vendor_dlkm` and `system_dlkm` partitions extracted as `<dump>/vendor_dlkm` and
-`<dump>/system_dlkm` (`lpunpack` for `super.img`, `fsck.erofs --extract` for the
-partitions). Run it from the synced Android tree (it uses AOSP
+`extract-files.sh` recreates `dtb/`, `dtbo.img`, `vendor_ramdisk/` and `vendor_dlkm/` from an
+unpacked fastboot ROM: `vendor_boot.img` and `dtbo.img` anywhere below the dump, the
+`vendor_dlkm` partition extracted as `<dump>/vendor_dlkm` (`lpunpack` for `super.img`,
+`fsck.erofs --extract` for the partition). Run it from the synced Android tree (it uses AOSP
 `system/tools/mkbootimg/unpack_bootimg.py`; needs `python3`, `lz4` and `cpio`):
 
 ```bash
 cd device/xiaomi/pudding-kernel
 ./extract-files.sh <dump>
-git status   # review: kernel, dtb/, dtbo.img and the module directories
+git status   # review: dtb/, dtbo.img and the module directories
 ```
 
-Then update the firmware name, checksum and kernel version in this README, and the kernel
-headers if the kernel changed (see above). The vendor modules only load on the kernel they
-were built for: always update kernel and modules together, from the same firmware.
+Then update the firmware name and checksum in this README. If the stock kernel version changed,
+rebuild `kernel` and `system_dlkm/` from the new tag (see above; the vendor modules need that
+KMI) and take `system_dlkm/modules.load` from the new `system_dlkm` partition; update the
+kernel headers if needed.
 
 ## License
 The kernel and GKI modules are GPL-2.0 (ACK). Vendor modules are distributed as shipped by

@@ -3,21 +3,19 @@
 # SPDX-FileCopyrightText: The LineageOS Project
 # SPDX-License-Identifier: Apache-2.0
 #
-# Extract the stock kernel prebuilts of the Xiaomi 17 (pudding) from an unpacked
-# fastboot ROM:
-#   kernel                   boot.img kernel
+# Extract the stock vendor kernel prebuilts of the Xiaomi 17 (pudding) from an
+# unpacked fastboot ROM:
 #   dtb/NN_dtbdump_*.dtb     the DTBs of vendor_boot.img, one file each (the build
 #                            concatenates them again in name order)
 #   dtbo.img                 dtbo.img without its AVB footer and padding
 #   vendor_ramdisk/          vendor_boot.img ramdisk modules and load lists
 #   vendor_dlkm/             vendor_dlkm partition modules and load lists
-#   system_dlkm/             system_dlkm partition modules (flattened) and load list
-# kernel-headers/ is not part of the firmware and is left untouched.
+# kernel and system_dlkm/ are built from source (see README.md) and kernel-headers/ is
+# not part of the firmware: all three are left untouched.
 #
 # Usage: ./extract-files.sh <dump>
-#   <dump> holds boot.img, vendor_boot.img and dtbo.img (anywhere below it) and the
-#   extracted vendor_dlkm and system_dlkm partitions as <dump>/vendor_dlkm and
-#   <dump>/system_dlkm.
+#   <dump> holds vendor_boot.img and dtbo.img (anywhere below it) and the extracted
+#   vendor_dlkm partition as <dump>/vendor_dlkm.
 # Needs python3, lz4, cpio and unpack_bootimg.py of AOSP system/tools/mkbootimg (found
 # in the Android source tree this repo is synced into, or set UNPACK_BOOTIMG).
 
@@ -48,12 +46,6 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 echo "Extracting from ${DUMP}:"
-
-### Kernel
-python3 "${UNPACK_BOOTIMG}" --boot_img "$(find_image boot.img)" \
-    --out "${TMP_DIR}/boot" > /dev/null
-cp -f "${TMP_DIR}/boot/kernel" "${MY_DIR}/kernel"
-echo "  - kernel ($(strings "${MY_DIR}/kernel" | grep -m1 -o 'Linux version [^ ]*'))"
 
 ### DTBs: split the concatenated blob of vendor_boot into one file per DTB
 python3 "${UNPACK_BOOTIMG}" --boot_img "$(find_image vendor_boot.img)" \
@@ -142,10 +134,5 @@ copy_modules "${TMP_DIR}/vendor_ramdisk/lib/modules" vendor_ramdisk \
 # vendor_dlkm
 copy_modules "${DUMP}/vendor_dlkm/lib/modules" vendor_dlkm \
     modules.load modules.blocklist system_dlkm.modules.blocklist
-
-# system_dlkm: GKI modules from the versioned module directory, flattened
-SYSTEM_DLKM="$(find "${DUMP}/system_dlkm/lib/modules" -mindepth 1 -maxdepth 1 -type d -print -quit)"
-[ -n "${SYSTEM_DLKM}" ] || { echo "no module directory in ${DUMP}/system_dlkm/lib/modules" >&2; exit 1; }
-copy_modules "${SYSTEM_DLKM}" system_dlkm modules.load
 
 echo "Done."
