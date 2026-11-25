@@ -16,13 +16,15 @@ The device trees and vendor modules are taken unmodified from the official Xiaom
 
 Its kernel is `6.12.69-android16-6-gc8366273ff73-ab15162216-4k`, Google's GKI build of
 [ACK](https://android.googlesource.com/kernel/common) tag `android16-6.12-2026-03_r7`
-(`c8366273ff73f3794018cd64ea13cbd6f5f5286a`). The kernel here is built from that same tag, so
-the stock vendor modules load unchanged (same KMI).
+(`c8366273ff73f3794018cd64ea13cbd6f5f5286a`). The kernel here is built from the newer ACK release
+`android16-6.12-2026-09_r18` of the same KMI generation; the stock vendor modules load unchanged
+(every symbol they import exists with the same CRC), except `arm_smmu.ko`, which is built from
+source.
 
 ## Contents
 | Path | From | Notes |
 |---|---|---|
-| `kernel` | Built from source | Uncompressed ARM64 `Image`, 4K pages: `6.12.69-android16-6-gc8366273ff73-4k` |
+| `kernel` | Built from source | Uncompressed ARM64 `Image`, 4K pages: `6.12.92-android16-6-gea16424de190-4k` |
 | `dtb/NN_dtbdump_<model>.dtb` | `vendor_boot.img` | The 12 DTBs of the stock blob, one file each; `BOARD_PREBUILT_DTBIMAGE_DIR` concatenates them in name order, which gives the stock blob byte for byte |
 | `dtbo.img` | `dtbo.img` | DT table only (2 entries); AVB footer and padding removed |
 | `vendor_ramdisk/` | `vendor_boot.img` ramdisk `lib/modules` | 462 modules; `modules.load` (first stage), `modules.load.recovery`, `modules.blocklist`; `arm_smmu.ko` is built from source |
@@ -51,13 +53,16 @@ KERNEL_PREBUILT_DIR := device/xiaomi/pudding-kernel
 PRODUCT_COPY_FILES += device/xiaomi/pudding-kernel/kernel:kernel
 ```
 
-The vendor modules are built against the GKI KMI of `android16-6.12-2026-03_r7`; `kernel` and
+The stock vendor modules are built against the GKI KMI of `android16-6.12-2026-03_r7`; `kernel` and
 `system_dlkm/` must come from the **same** build (see below).
 
 ## GKI kernel (built from source)
 `kernel` and `system_dlkm/*.ko` are a plain GKI build (`gki_defconfig`, no changes) of
 [kernel/common](https://android.googlesource.com/kernel/common) tag
-`android16-6.12-2026-03_r7` (`c8366273ff73`), the source of the stock kernel.
+`android16-6.12-2026-09_r18` (`ea16424de190`), the newest android16-6.12 release.
+
+Before moving to another tag, check that every symbol the stock vendor modules import
+(`modprobe --dump-modversions`) is in the new `kernel_aarch64_Module.symvers` with the same CRC.
 
 In a LineageOS or PixelOS tree the Kleaf kernel platform comes from the manifest snippet
 `snippets/kernel-6.12.xml` (`kernel/platform/kernel-6.12`). Pin `kernel/common` to the tag in a
@@ -67,7 +72,7 @@ local manifest:
 <manifest>
   <include name="manifests/snippets/kernel-6.12.xml" />
   <extend-project name="kernel/common" path="kernel/platform/kernel-6.12/common"
-                  revision="refs/tags/android16-6.12-2026-03_r7" />
+                  revision="refs/tags/android16-6.12-2026-09_r18" />
 </manifest>
 ```
 
