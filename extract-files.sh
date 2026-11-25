@@ -11,7 +11,8 @@
 #   vendor_ramdisk/          vendor_boot.img ramdisk modules and load lists
 #   vendor_dlkm/             vendor_dlkm partition modules and load lists
 # kernel and system_dlkm/ are built from source (see README.md) and kernel-headers/ is
-# not part of the firmware: all three are left untouched.
+# not part of the firmware: all three are left untouched. The vendor modules listed in
+# SOURCE_BUILT_MODULES are built from source too and are kept as they are.
 #
 # Usage: ./extract-files.sh <dump>
 #   <dump> holds vendor_boot.img and dtbo.img (anywhere below it) and the extracted
@@ -112,12 +113,25 @@ EOF
 echo "  - dtbo.img"
 
 ### Kernel modules
+# Vendor modules built from source (see README.md): kept instead of the stock file
+SOURCE_BUILT_MODULES=(
+    vendor_ramdisk/arm_smmu.ko
+)
+
 copy_modules() {
-    local src="${1}" dst="${MY_DIR}/${2}"
+    local src="${1}" dst="${MY_DIR}/${2}" module
     shift 2
+    mkdir "${TMP_DIR}/keep"
+    for module in "${SOURCE_BUILT_MODULES[@]}"; do
+        if [ "${module%%/*}" = "${dst##*/}" ]; then
+            cp "${MY_DIR}/${module}" "${TMP_DIR}/keep/"
+        fi
+    done
     rm -rf "${dst}"
     mkdir "${dst}"
     find "${src}" -name '*.ko' -type f -exec cp {} "${dst}/" \;
+    cp -a "${TMP_DIR}/keep/." "${dst}/"
+    rm -rf "${TMP_DIR}/keep"
     for list in "$@"; do
         cp "${src}/${list}" "${dst}/"
     done

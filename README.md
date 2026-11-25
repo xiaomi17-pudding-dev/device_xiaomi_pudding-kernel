@@ -4,7 +4,8 @@ Kernel prebuilts for the **Xiaomi 17** (`pudding`, Snapdragon 8 Elite Gen 5 / SM
 `canoe`), used by the `pudding` device tree:
 - the GKI kernel and its 103 GKI modules, **built from source** (Android Common Kernel, see
   [GKI kernel](#gki-kernel-built-from-source));
-- device trees and the vendor modules, taken from the stock firmware.
+- device trees and the vendor modules, taken from the stock firmware, except `arm_smmu.ko`
+  (built from source, see [arm_smmu](#arm_smmu-built-from-source)).
 
 ## Source firmware
 The device trees and vendor modules are taken unmodified from the official Xiaomi fastboot ROM
@@ -24,7 +25,7 @@ the stock vendor modules load unchanged (same KMI).
 | `kernel` | Built from source | Uncompressed ARM64 `Image`, 4K pages: `6.12.69-android16-6-gc8366273ff73-4k` |
 | `dtb/NN_dtbdump_<model>.dtb` | `vendor_boot.img` | The 12 DTBs of the stock blob, one file each; `BOARD_PREBUILT_DTBIMAGE_DIR` concatenates them in name order, which gives the stock blob byte for byte |
 | `dtbo.img` | `dtbo.img` | DT table only (2 entries); AVB footer and padding removed |
-| `vendor_ramdisk/` | `vendor_boot.img` ramdisk `lib/modules` | 462 modules; `modules.load` (first stage), `modules.load.recovery`, `modules.blocklist` |
+| `vendor_ramdisk/` | `vendor_boot.img` ramdisk `lib/modules` | 462 modules; `modules.load` (first stage), `modules.load.recovery`, `modules.blocklist`; `arm_smmu.ko` is built from source |
 | `vendor_dlkm/` | `vendor_dlkm` partition `lib/modules` | 403 modules; `modules.load`, `modules.blocklist`, `system_dlkm.modules.blocklist` |
 | `system_dlkm/` | Built from source; `modules.load` from the `system_dlkm` partition | 103 GKI modules, signed by the same build as `kernel` |
 | `kernel-headers/` | Kernel sources, see below | Installed kernel UAPI headers for the Qualcomm HALs built from source |
@@ -84,6 +85,33 @@ for ko in <this repo>/system_dlkm/*.ko; do cp "/tmp/gki-dist/${ko##*/}" "$ko"; d
 The build signs the modules with a key it generates, and the kernel only trusts that key, so
 always copy `Image` and all modules of one build together. Two builds differ only in that key:
 the module contents are identical without their signature.
+
+## arm_smmu (built from source)
+`vendor_ramdisk/arm_smmu.ko` (the Qualcomm ARM SMMU driver, first stage) is built from
+[LineageOS/android_kernel_qcom_sm8850](https://github.com/LineageOS/android_kernel_qcom_sm8850)
+`lineage-24.0` (`557159b6a0d0`, CLO `KERNEL.PLATFORM.5.0.r1-19800`), target `canoe_perf`, against the
+GKI kernel of this repo.
+
+The stock module also contains the NVIDIA Tegra SMMU implementation (`nvidia_smmu_*`), which
+imports `tegra_mc_probe_device` and `devm_tegra_memory_controller_get` from the kernel. ACK
+changed the CRCs of both symbols in `android16-6.12-2026-06`, so the stock module no longer
+loads on newer kernels and the device does not boot. The module built here is the same driver
+without the Tegra part (`CONFIG_ARM_SMMU_NVIDIA` is off for `canoe`): apart from the 11
+`nvidia_smmu_*` functions it defines the same functions as the stock module, has the same
+dependencies (`qcom_iommu_util`, `iommu-logger`, `qcom-scm`) and exports no symbols.
+
+Build (in a tree with the kernel platform and the three LineageOS `kernel/qcom/sm8850*` repos at
+`kernel/platform/kernel-6.12/vendor/qcom/`, as `vendor/lineage/build/tasks/kernel.mk` uses them):
+
+```bash
+cd kernel/platform/kernel-6.12
+tools/bazel run --cpu=arm64 --repo_manifest="$PWD:/tmp/kernel-manifest.xml" --config=stamp \
+    --//build/kernel/kleaf:allow_ddk_unsafe_headers \
+    //vendor/qcom/sm8850:canoe_perf_dist -- --destdir=/tmp/canoe-dist
+cp /tmp/canoe-dist/arm_smmu.ko <this repo>/vendor_ramdisk/arm_smmu.ko
+```
+
+`extract-files.sh` keeps it (`SOURCE_BUILT_MODULES`).
 
 ## Kernel headers
 The Qualcomm HALs that LineageOS builds from source include kernel UAPI headers of the
